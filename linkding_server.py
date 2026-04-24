@@ -479,7 +479,7 @@ async def check_url(url: str) -> str:
         return f"Error checking URL: {str(e)}"
 
 @mcp.tool
-async def check_urls(urls: List[str]) -> str:
+async def check_urls(urls: List[str]) -> Dict[str, Any]:
     """
     Bulk check whether multiple URLs are already bookmarked.
 
