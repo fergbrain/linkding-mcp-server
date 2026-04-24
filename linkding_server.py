@@ -134,10 +134,10 @@ async def search_bookmarks(
     offset: int = 0,
     archived: bool = False,
     unread_only: bool = False
-) -> str:
+) -> Dict[str, Any]:
     """
     Search for bookmarks with various filters.
-    
+
     Args:
         query: Search phrase to filter bookmarks (searches title, description, notes, URL)
         tag: Filter by specific tag name
@@ -145,50 +145,46 @@ async def search_bookmarks(
         offset: Number of results to skip for pagination (default: 0)
         archived: Search in archived bookmarks instead of active ones
         unread_only: Only return unread bookmarks
-    
+
     Returns:
-        JSON string containing the search results
+        Paginated list of matching bookmarks
     """
     try:
-        # Build query parameters
         params = {
             "limit": limit,
             "offset": offset
         }
-        
+
         if query:
             params["q"] = query
-            
-        # Determine endpoint based on archived flag
+
         endpoint = "/bookmarks/archived/" if archived else "/bookmarks/"
-        
+
         response = await client.get(endpoint, params=params)
-        
+
         if response.status_code != 200:
-            return await handle_api_error(response)
-            
+            return {"error": await handle_api_error(response)}
+
         data = response.json()
         bookmark_list = BookmarkList(**data)
-        
-        # Apply additional filters
+
         filtered_results = bookmark_list.results
-        
+
         if tag:
             filtered_results = [b for b in filtered_results if tag in b.tag_names]
-            
+
         if unread_only:
             filtered_results = [b for b in filtered_results if b.unread]
-            
-        # Update the results
+
         bookmark_list.results = filtered_results
         bookmark_list.count = len(filtered_results)
-        
-        return bookmark_list.model_dump_json(indent=2)
-        
+
+        return bookmark_list.model_dump()
+
     except httpx.RequestError as e:
-        return f"Connection error: {str(e)}"
+        return {"error": f"Connection error: {str(e)}"}
     except Exception as e:
-        return f"Error searching bookmarks: {str(e)}"
+        return {"error": f"Error searching bookmarks: {str(e)}"}
 
 @mcp.tool
 async def add_bookmark(
@@ -200,10 +196,10 @@ async def add_bookmark(
     is_archived: bool = False,
     unread: bool = False,
     shared: bool = False
-) -> str:
+) -> Dict[str, Any]:
     """
     Add a new bookmark to LinkDing.
-    
+
     Args:
         url: The URL to bookmark (required)
         title: Custom title for the bookmark (auto-scraped if not provided)
@@ -213,15 +209,14 @@ async def add_bookmark(
         is_archived: Whether to save the bookmark directly to archive
         unread: Mark the bookmark as unread
         shared: Make the bookmark shared with other users
-    
+
     Returns:
-        JSON string containing the created bookmark data
+        The created bookmark data
     """
-    # Security check for destructive actions
     security_error = check_destructive_actions_enabled()
     if security_error:
-        return security_error
-        
+        return {"error": security_error}
+
     try:
         payload = {
             "url": url,
@@ -229,7 +224,7 @@ async def add_bookmark(
             "unread": unread,
             "shared": shared
         }
-        
+
         if title:
             payload["title"] = title
         if description:
@@ -238,50 +233,45 @@ async def add_bookmark(
             payload["notes"] = notes
         if tags:
             payload["tag_names"] = tags
-            
+
         response = await client.post("/bookmarks/", json=payload)
-        
+
         if response.status_code not in [200, 201]:
-            return await handle_api_error(response)
-            
-        bookmark_data = response.json()
-        bookmark = Bookmark(**bookmark_data)
-        
-        return bookmark.model_dump_json(indent=2)
-        
+            return {"error": await handle_api_error(response)}
+
+        bookmark = Bookmark(**response.json())
+        return bookmark.model_dump()
+
     except httpx.RequestError as e:
-        return f"Connection error: {str(e)}"
+        return {"error": f"Connection error: {str(e)}"}
     except Exception as e:
-        return f"Error adding bookmark: {str(e)}"
+        return {"error": f"Error adding bookmark: {str(e)}"}
 
 @mcp.tool
-async def get_bookmark(bookmark_id: int) -> str:
+async def get_bookmark(bookmark_id: int) -> Dict[str, Any]:
     """
     Retrieve a specific bookmark by its ID.
-    
+
     Args:
         bookmark_id: The ID of the bookmark to retrieve
-    
+
     Returns:
-        JSON string containing the bookmark data
+        The bookmark data
     """
     try:
         response = await client.get(f"/bookmarks/{bookmark_id}/")
-        
+
         if response.status_code == 404:
-            return f"Bookmark with ID {bookmark_id} not found"
+            return {"error": f"Bookmark with ID {bookmark_id} not found"}
         elif response.status_code != 200:
-            return await handle_api_error(response)
-            
-        bookmark_data = response.json()
-        bookmark = Bookmark(**bookmark_data)
-        
-        return bookmark.model_dump_json(indent=2)
-        
+            return {"error": await handle_api_error(response)}
+
+        return Bookmark(**response.json()).model_dump()
+
     except httpx.RequestError as e:
-        return f"Connection error: {str(e)}"
+        return {"error": f"Connection error: {str(e)}"}
     except Exception as e:
-        return f"Error retrieving bookmark: {str(e)}"
+        return {"error": f"Error retrieving bookmark: {str(e)}"}
 
 @mcp.tool
 async def update_bookmark(
@@ -294,10 +284,10 @@ async def update_bookmark(
     is_archived: Optional[bool] = None,
     unread: Optional[bool] = None,
     shared: Optional[bool] = None
-) -> str:
+) -> Dict[str, Any]:
     """
     Update an existing bookmark.
-    
+
     Args:
         bookmark_id: The ID of the bookmark to update
         url: New URL for the bookmark
@@ -308,18 +298,17 @@ async def update_bookmark(
         is_archived: Update archived status
         unread: Update unread status
         shared: Update shared status
-    
+
     Returns:
-        JSON string containing the updated bookmark data
+        The updated bookmark data
     """
-    # Security check for destructive actions
     security_error = check_destructive_actions_enabled()
     if security_error:
-        return security_error
-        
+        return {"error": security_error}
+
     try:
         payload = {}
-        
+
         if url is not None:
             payload["url"] = url
         if title is not None:
@@ -336,26 +325,23 @@ async def update_bookmark(
             payload["unread"] = unread
         if shared is not None:
             payload["shared"] = shared
-            
+
         if not payload:
-            return "No fields provided to update"
-            
+            return {"error": "No fields provided to update"}
+
         response = await client.patch(f"/bookmarks/{bookmark_id}/", json=payload)
-        
+
         if response.status_code == 404:
-            return f"Bookmark with ID {bookmark_id} not found"
+            return {"error": f"Bookmark with ID {bookmark_id} not found"}
         elif response.status_code != 200:
-            return await handle_api_error(response)
-            
-        bookmark_data = response.json()
-        bookmark = Bookmark(**bookmark_data)
-        
-        return bookmark.model_dump_json(indent=2)
-        
+            return {"error": await handle_api_error(response)}
+
+        return Bookmark(**response.json()).model_dump()
+
     except httpx.RequestError as e:
-        return f"Connection error: {str(e)}"
+        return {"error": f"Connection error: {str(e)}"}
     except Exception as e:
-        return f"Error updating bookmark: {str(e)}"
+        return {"error": f"Error updating bookmark: {str(e)}"}
 
 @mcp.tool
 async def delete_bookmark(bookmark_id: int) -> str:
@@ -451,32 +437,28 @@ async def unarchive_bookmark(bookmark_id: int) -> str:
         return f"Error unarchiving bookmark: {str(e)}"
 
 @mcp.tool
-async def check_url(url: str) -> str:
+async def check_url(url: str) -> Dict[str, Any]:
     """
     Check if a URL is already bookmarked and get metadata.
-    
+
     Args:
         url: The URL to check
-    
+
     Returns:
-        JSON string containing bookmark status, metadata, and auto-tags
+        Bookmark status, metadata, and auto-tags
     """
     try:
-        params = {"url": url}
-        response = await client.get("/bookmarks/check/", params=params)
-        
+        response = await client.get("/bookmarks/check/", params={"url": url})
+
         if response.status_code != 200:
-            return await handle_api_error(response)
-            
-        check_data = response.json()
-        check_result = BookmarkCheck(**check_data)
-        
-        return check_result.model_dump_json(indent=2)
-        
+            return {"error": await handle_api_error(response)}
+
+        return BookmarkCheck(**response.json()).model_dump()
+
     except httpx.RequestError as e:
-        return f"Connection error: {str(e)}"
+        return {"error": f"Connection error: {str(e)}"}
     except Exception as e:
-        return f"Error checking URL: {str(e)}"
+        return {"error": f"Error checking URL: {str(e)}"}
 
 @mcp.tool
 async def check_urls(urls: List[str]) -> Dict[str, Any]:
@@ -526,57 +508,47 @@ async def check_urls(urls: List[str]) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 @mcp.tool
-async def list_tags(limit: int = 100, offset: int = 0) -> str:
+async def list_tags(limit: int = 100, offset: int = 0) -> Dict[str, Any]:
     """
     List all available tags.
-    
+
     Args:
         limit: Maximum number of tags to return (default: 100)
         offset: Number of tags to skip for pagination (default: 0)
-    
+
     Returns:
-        JSON string containing the list of tags
+        Paginated list of tags
     """
     try:
-        params = {
-            "limit": limit,
-            "offset": offset
-        }
-        
-        response = await client.get("/tags/", params=params)
-        
+        response = await client.get("/tags/", params={"limit": limit, "offset": offset})
+
         if response.status_code != 200:
-            return await handle_api_error(response)
-            
-        data = response.json()
-        tag_list = TagList(**data)
-        
-        return tag_list.model_dump_json(indent=2)
-        
+            return {"error": await handle_api_error(response)}
+
+        return TagList(**response.json()).model_dump()
+
     except httpx.RequestError as e:
-        return f"Connection error: {str(e)}"
+        return {"error": f"Connection error: {str(e)}"}
     except Exception as e:
-        return f"Error listing tags: {str(e)}"
+        return {"error": f"Error listing tags: {str(e)}"}
 
 @mcp.tool
-async def list_bookmarks_by_tag(tag_name: str, limit: int = 100, offset: int = 0) -> str:
+async def list_bookmarks_by_tag(tag_name: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
     """
     List bookmarks filtered by a specific tag.
-    
+
     Args:
         tag_name: Name of the tag to filter by
         limit: Maximum number of bookmarks to return (default: 100)
         offset: Number of bookmarks to skip for pagination (default: 0)
-    
+
     Returns:
-        JSON string containing bookmarks with the specified tag
+        Paginated list of bookmarks with the specified tag
     """
     try:
-        # Use the search function with tag filter
         return await search_bookmarks(tag=tag_name, limit=limit, offset=offset)
-        
     except Exception as e:
-        return f"Error listing bookmarks by tag: {str(e)}"
+        return {"error": f"Error listing bookmarks by tag: {str(e)}"}
 
 # Cleanup function
 async def cleanup():
