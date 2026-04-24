@@ -8,7 +8,8 @@ Provides tools for searching, adding, updating, and managing bookmarks.
 
 import os
 import logging
-from typing import List, Optional, Dict, Any
+import json
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 import asyncio
 
@@ -109,6 +110,12 @@ client = httpx.AsyncClient(
     timeout=30.0
 )
 
+def _coerce_tags(tags: Optional[Union[List[str], str]]) -> Optional[List[str]]:
+    """Parse tags whether the MCP harness delivered a native list or a JSON-encoded string."""
+    if tags is None or isinstance(tags, list):
+        return tags
+    return json.loads(tags)
+
 async def handle_api_error(response: httpx.Response) -> str:
     """Handle API errors and return meaningful error messages"""
     try:
@@ -192,7 +199,7 @@ async def add_bookmark(
     title: Optional[str] = None,
     description: Optional[str] = None,
     notes: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    tags: Optional[Union[List[str], str]] = None,
     is_archived: bool = False,
     unread: bool = False,
     shared: bool = False
@@ -231,8 +238,9 @@ async def add_bookmark(
             payload["description"] = description
         if notes:
             payload["notes"] = notes
-        if tags:
-            payload["tag_names"] = tags
+        parsed_tags = _coerce_tags(tags)
+        if parsed_tags:
+            payload["tag_names"] = parsed_tags
 
         response = await client.post("/bookmarks/", json=payload)
 
@@ -280,7 +288,7 @@ async def update_bookmark(
     title: Optional[str] = None,
     description: Optional[str] = None,
     notes: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    tags: Optional[Union[List[str], str]] = None,
     is_archived: Optional[bool] = None,
     unread: Optional[bool] = None,
     shared: Optional[bool] = None
@@ -317,8 +325,9 @@ async def update_bookmark(
             payload["description"] = description
         if notes is not None:
             payload["notes"] = notes
-        if tags is not None:
-            payload["tag_names"] = tags
+        parsed_tags = _coerce_tags(tags)
+        if parsed_tags is not None:
+            payload["tag_names"] = parsed_tags
         if is_archived is not None:
             payload["is_archived"] = is_archived
         if unread is not None:
