@@ -10,6 +10,7 @@ import os
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import asyncio
 
 import httpx
 from dotenv import load_dotenv
@@ -476,6 +477,53 @@ async def check_url(url: str) -> str:
         return f"Connection error: {str(e)}"
     except Exception as e:
         return f"Error checking URL: {str(e)}"
+
+@mcp.tool
+async def check_urls(urls: List[str]) -> str:
+    """
+    Bulk check whether multiple URLs are already bookmarked.
+
+    Args:
+        urls: List of URLs to check
+
+    Returns:
+        JSON object mapping each input URL to its bookmark status:
+        {
+          "<url>": {
+            "exists": bool,
+            "matched_url": str | null,
+            "id": int | null,
+            "title": str | null
+          },
+          ...
+        }
+    """
+    async def _check_one(url: str) -> tuple[str, Dict[str, Any]]:
+        try:
+            response = await client.get("/bookmarks/check/", params={"url": url})
+            if response.status_code != 200:
+                error_msg = await handle_api_error(response)
+                return url, {"exists": False, "matched_url": None, "id": None, "title": None, "error": error_msg}
+
+            check_data = response.json()
+            check_result = BookmarkCheck(**check_data)
+
+            if check_result.bookmark is not None:
+                b = check_result.bookmark
+                return url, {"exists": True, "matched_url": b.url, "id": b.id, "title": b.title}
+            else:
+                return url, {"exists": False, "matched_url": None, "id": None, "title": None}
+
+        except httpx.RequestError as e:
+            return url, {"exists": False, "matched_url": None, "id": None, "title": None, "error": f"Connection error: {str(e)}"}
+        except Exception as e:
+            return url, {"exists": False, "matched_url": None, "id": None, "title": None, "error": f"Error: {str(e)}"}
+
+    try:
+        results = await asyncio.gather(*(_check_one(url) for url in urls))
+        return {"success": True, "results": dict(results)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @mcp.tool
 async def list_tags(limit: int = 100, offset: int = 0) -> str:
